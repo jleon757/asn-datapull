@@ -74,5 +74,4 @@ jobs:
 
       - name: Send to Cribl
         run: |
-          # send_to_cribl.py expects INPUT_FILE = "asparser/results.json"
           python3 send_to_cribl.py
