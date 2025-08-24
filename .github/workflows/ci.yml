@@ -1,0 +1,78 @@
+name: Build and Send MaxMind Data
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build_and_pull:
+    name: Build and pull the data
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: rockylinux:9.3
+    env:
+      MAXMIND_TOKEN: ${{ secrets.MAXMIND_TOKEN }}
+    steps:
+      - name: Checkout this repo (for context/util scripts if any)
+        uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          dnf -y update &> /dev/null
+          dnf -y install git python3 python3.9-pip &> /dev/null
+          pip3 install wheel &> /dev/null
+
+      - name: Clone and install asparser
+        run: |
+          git clone https://github.com/splunk/asparser
+          cd asparser
+          python3 -m pip install -r requirements.txt . &> /dev/null
+
+      - name: Run asparser
+        working-directory: ./asparser
+        run: asparser -o results.json &> /dev/null
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: asparser-results
+          path: asparser/results.json
+          if-no-files-found: error
+          retention-days: 1
+
+  send_to_cribl:
+    name: Send the data
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build_and_pull]
+    container:
+      image: rockylinux:9.3
+    env:
+      MAXMIND_TOKEN: ${{ secrets.MAXMIND_TOKEN }}
+    steps:
+      - name: Checkout this repo (for send_to_cribl.py)
+        uses: actions/checkout@v4
+
+      - name: Install Python + requests
+        run: |
+          dnf -y update &> /dev/null
+          dnf -y install python3 python3.9-pip &> /dev/null
+          pip3 install requests &> /dev/null
+
+      - name: Download results artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asparser-results
+          path: asparser
+
+      - name: Send to Cribl
+        run: |
+          # send_to_cribl.py expects INPUT_FILE = "asparser/results.json"
+          python3 send_to_cribl.py
